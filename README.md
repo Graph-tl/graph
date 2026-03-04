@@ -132,27 +132,68 @@ When a task resolves, high-quality evidence has three parts: a **git commit** (t
 
 The `state` field is agent-defined and engine-ignored — use it for your own lifecycle tracking (draft, review, etc.) without affecting dependency computation.
 
+## Knowledge system
+
+Graph treats project knowledge as a first-class concept, not just task notes. Knowledge entries are categorized and automatically surfaced where relevant.
+
+**Categories:** `general`, `architecture`, `convention`, `decision`, `environment`, `api-contract`, `discovery`
+
+Convention and architecture entries are auto-surfaced in relevant tool responses so agents follow established patterns without being told. The knowledge audit tool detects stale entries, overlaps between entries, and drift from actual project state.
+
+## Roadmap & retrospectives
+
+**Roadmap** (`graph_roadmap`) groups tasks by planning horizon — now, next, later, paused — giving agents and humans a release-pipeline view of what's coming.
+
+**Retrospectives** (`graph_retro`) run structured retros on recently resolved work: what went well, what didn't, and what to change. Findings are categorized and can feed back into the knowledge system to prevent repeating mistakes.
+
 ## Tools
+
+### Core workflow
 
 | Tool | Purpose |
 |---|---|
-| **graph_onboard** | Single-call orientation: project summary, tree, evidence, knowledge, actionable tasks. Omit project to auto-select |
 | **graph_open** | Open or create a project. No args = list all projects |
-| **graph_plan** | Batch create tasks with dependencies. Atomic |
+| **graph_plan** | Batch create tasks with parent-child and dependency relationships. Atomic |
 | **graph_next** | Get next actionable task, ranked by priority/depth/recency. Optional claim |
-| **graph_tree** | Full project tree visualization with resolve status |
-| **graph_context** | Deep-read a task: ancestors, children, dependency graph |
 | **graph_update** | Resolve tasks, add evidence. Reports newly unblocked tasks. Auto-resolves parents when all children complete |
 | **graph_resolve** | One-call resolve helper: auto-collects git commits and modified files as evidence |
-| **graph_connect** | Add/remove dependency edges with cycle detection |
+
+### Navigation & inspection
+
+| Tool | Purpose |
+|---|---|
+| **graph_onboard** | Single-call orientation: project summary, tree, evidence, knowledge, actionable tasks, continuity confidence. Omit project to auto-select |
+| **graph_context** | Deep-read a task: ancestors, children, dependency graph |
+| **graph_tree** | Full project tree visualization with resolve status |
 | **graph_query** | Search and filter by state, properties, text, ancestry |
-| **graph_restructure** | Move, merge, or drop tasks for replanning |
-| **graph_status** | Formatted project dashboard: progress, task tree, integrity, knowledge |
 | **graph_history** | Audit trail: who changed what, when |
-| **graph_retro** | Structured retrospective: gather resolved tasks, record categorized findings |
-| **graph_knowledge_write** | Store persistent project knowledge (architecture decisions, conventions) |
-| **graph_knowledge_read** | Read knowledge entries or list all |
+
+### Structure & planning
+
+| Tool | Purpose |
+|---|---|
+| **graph_connect** | Add/remove dependency edges with cycle detection |
+| **graph_restructure** | Move (reparent), merge, drop, or delete tasks. Atomic |
+| **graph_roadmap** | Release-pipeline view grouped by horizon (now / next / later / paused) with decision context |
+
+### Project views & quality
+
+| Tool | Purpose |
+|---|---|
+| **graph_status** | Formatted markdown dashboard: progress, task tree, integrity, knowledge |
+| **graph_retro** | Structured retrospective: gather resolved tasks, record categorized findings, detect knowledge drift |
+| **graph_agent_config** | Returns agent configuration file for `.claude/agents/graph.md` |
+
+### Knowledge management
+
+| Tool | Purpose |
+|---|---|
+| **graph_knowledge_write** | Store persistent project knowledge with category (architecture, convention, decision, etc.) |
+| **graph_knowledge_write_batch** | Batch write multiple knowledge entries. Atomic |
+| **graph_knowledge_read** | Read individual entries or list all with optional content |
 | **graph_knowledge_search** | Search knowledge by substring |
+| **graph_knowledge_delete** | Delete a knowledge entry |
+| **graph_knowledge_audit** | Deep-clean audit: flags stale entries, overlaps, orphans, and drift |
 
 ## Configuration
 
