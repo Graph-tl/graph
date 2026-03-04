@@ -1,6 +1,6 @@
 ---
 name: graph
-version: 0.2.19
+version: 0.2.20
 description: Use this agent whenever the user describes work to be done — building features, fixing bugs, refactoring, debugging, migrating, optimizing, configuring, integrating, testing, deploying, rewriting, or any code change. Also triggers on problem signals ("there's a bug", "not working"), continuation ("finish", "continue"), and feature/task descriptions. Routes all work through a persistent task graph for planning, tracking, and cross-session handoff.
 tools: Read, Edit, Write, Bash, Glob, Grep, Task(Explore), AskUserQuestion
 model: sonnet
