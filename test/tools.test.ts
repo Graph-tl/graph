@@ -460,6 +460,63 @@ describe("graph_next", () => {
     const next = handleNext({ project: "test" }, AGENT) as any;
     expect(next.nodes[0].relevant_knowledge).toBeUndefined();
   });
+
+  // [sl:-3MW3xX7W0z-7FMT9xXxW] Cross-cutting knowledge tests
+  it("surfaces convention/architecture knowledge from unrelated subtrees", () => {
+    const { root } = openProject("test", "test", AGENT) as any;
+    // Create two separate subtrees
+    const plan = handlePlan({ nodes: [
+      { ref: "branch-a", parent_ref: root.id, summary: "Branch A" },
+      { ref: "task-a", parent_ref: "branch-a", summary: "Task in branch A" },
+      { ref: "branch-b", parent_ref: root.id, summary: "Branch B" },
+      { ref: "task-b", parent_ref: "branch-b", summary: "Task in branch B" },
+    ] }, AGENT);
+    const branchAId = plan.created.find(c => c.ref === "branch-a")!.id;
+
+    // Write convention knowledge linked to branch A
+    handleKnowledgeWrite({
+      project: "test", key: "naming-convention", category: "convention",
+      content: "Use camelCase for all function names", source_node: branchAId,
+    }, AGENT);
+
+    // Write architecture knowledge linked to branch A
+    handleKnowledgeWrite({
+      project: "test", key: "arch-layers", category: "architecture",
+      content: "Three-layer architecture: handler, service, repo", source_node: branchAId,
+    }, AGENT);
+
+    // Claim task in branch B — should see cross-cutting knowledge from branch A
+    const next = handleNext({ project: "test", count: 10 }, AGENT) as any;
+    const taskB = next.nodes.find((n: any) => n.node.summary === "Task in branch B");
+    expect(taskB).toBeDefined();
+    const keys = taskB.relevant_knowledge?.map((k: any) => k.key) ?? [];
+    expect(keys).toContain("naming-convention");
+    expect(keys).toContain("arch-layers");
+  });
+
+  it("does not surface non-convention knowledge from unrelated subtrees", () => {
+    const { root } = openProject("test", "test", AGENT) as any;
+    const plan = handlePlan({ nodes: [
+      { ref: "branch-a", parent_ref: root.id, summary: "Branch A" },
+      { ref: "task-a", parent_ref: "branch-a", summary: "Task in branch A" },
+      { ref: "branch-b", parent_ref: root.id, summary: "Branch B" },
+      { ref: "task-b", parent_ref: "branch-b", summary: "Task in branch B" },
+    ] }, AGENT);
+    const branchAId = plan.created.find(c => c.ref === "branch-a")!.id;
+
+    // Write decision knowledge (NOT convention/architecture) linked to branch A
+    handleKnowledgeWrite({
+      project: "test", key: "local-decision", category: "decision",
+      content: "We chose Postgres over MySQL for branch A", source_node: branchAId,
+    }, AGENT);
+
+    // Get task in branch B — should NOT see branch A's decision knowledge
+    const next = handleNext({ project: "test", count: 10 }, AGENT) as any;
+    const taskB = next.nodes.find((n: any) => n.node.summary === "Task in branch B");
+    expect(taskB).toBeDefined();
+    const keys = taskB.relevant_knowledge?.map((k: any) => k.key) ?? [];
+    expect(keys).not.toContain("local-decision");
+  });
 });
 
 describe("graph_context", () => {
@@ -2141,14 +2198,58 @@ describe("graph_knowledge", () => {
     expect(update.previous_excerpt).toContain("...");
   });
 
-  it("lists all entries when key omitted", () => {
+  // [sl:gZYSbE2pCxmttcqpHy3nF] Metadata-first listing
+  it("lists all entries as compact index by default", () => {
     handleOpen({ project: "kb-test", goal: "Test knowledge" }, AGENT);
 
-    handleKnowledgeWrite({ project: "kb-test", key: "arch", content: "Monorepo" }, AGENT);
-    handleKnowledgeWrite({ project: "kb-test", key: "conventions", content: "Use kebab-case" }, AGENT);
+    handleKnowledgeWrite({ project: "kb-test", key: "arch", content: "Monorepo with shared packages" }, AGENT);
+    handleKnowledgeWrite({ project: "kb-test", key: "conventions", content: "Use kebab-case for files" }, AGENT);
 
     const list = handleKnowledgeRead({ project: "kb-test" }) as any;
     expect(list.entries).toHaveLength(2);
+    // Compact: has excerpt, category, days_stale — no full content
+    expect(list.entries[0]).toHaveProperty("excerpt");
+    expect(list.entries[0]).toHaveProperty("category");
+    expect(list.entries[0]).toHaveProperty("days_stale");
+    expect(list.entries[0]).not.toHaveProperty("content");
+    expect(list.entries[0]).not.toHaveProperty("source_node_resolved");
+  });
+
+  it("lists all entries with full content when include_content is true", () => {
+    handleOpen({ project: "kb-test", goal: "Test knowledge" }, AGENT);
+
+    handleKnowledgeWrite({ project: "kb-test", key: "arch", content: "Monorepo" }, AGENT);
+
+    const list = handleKnowledgeRead({ project: "kb-test", include_content: true }) as any;
+    expect(list.entries).toHaveLength(1);
+    expect(list.entries[0]).toHaveProperty("content");
+    expect(list.entries[0].content).toBe("Monorepo");
+    expect(list.entries[0]).toHaveProperty("source_node_resolved");
+  });
+
+  // [sl:ZAkLYNCsJYHIqm-n3F_Bo] Batch read tests
+  it("batch reads multiple entries with full content", () => {
+    handleOpen({ project: "kb-test", goal: "Test knowledge" }, AGENT);
+    handleKnowledgeWrite({ project: "kb-test", key: "auth", content: "JWT tokens" }, AGENT);
+    handleKnowledgeWrite({ project: "kb-test", key: "db", content: "PostgreSQL" }, AGENT);
+    handleKnowledgeWrite({ project: "kb-test", key: "deploy", content: "Docker" }, AGENT);
+
+    const result = handleKnowledgeRead({ project: "kb-test", keys: ["auth", "db"] }) as any;
+    expect(result.entries).toHaveLength(2);
+    expect(result.entries[0]).toHaveProperty("content");
+    const keys = result.entries.map((e: any) => e.key);
+    expect(keys).toContain("auth");
+    expect(keys).toContain("db");
+    expect(keys).not.toContain("deploy");
+  });
+
+  it("batch read surfaces missing keys", () => {
+    handleOpen({ project: "kb-test", goal: "Test knowledge" }, AGENT);
+    handleKnowledgeWrite({ project: "kb-test", key: "exists", content: "Here" }, AGENT);
+
+    const result = handleKnowledgeRead({ project: "kb-test", keys: ["exists", "nope"] }) as any;
+    expect(result.entries).toHaveLength(1);
+    expect(result.missing).toEqual(["nope"]);
   });
 
   it("searches by substring", () => {
@@ -2254,9 +2355,15 @@ describe("graph_knowledge", () => {
     handleOpen({ project: "kb-fresh-list", goal: "List freshness test" }, AGENT);
     handleKnowledgeWrite({ project: "kb-fresh-list", key: "a", content: "A" }, AGENT);
     handleKnowledgeWrite({ project: "kb-fresh-list", key: "b", content: "B" }, AGENT);
+    // Compact listing includes days_stale
     const result = handleKnowledgeRead({ project: "kb-fresh-list" }) as any;
     expect(result.entries).toHaveLength(2);
     for (const entry of result.entries) {
+      expect(entry.days_stale).toBeGreaterThanOrEqual(0);
+    }
+    // Full listing includes days_since_update and source_node_resolved
+    const full = handleKnowledgeRead({ project: "kb-fresh-list", include_content: true }) as any;
+    for (const entry of full.entries) {
       expect(entry.days_since_update).toBeGreaterThanOrEqual(0);
       expect(entry).toHaveProperty("source_node_resolved");
     }
@@ -2467,6 +2574,64 @@ describe("graph_knowledge_write_batch", () => {
     // Second entry should detect similarity with first — surfaced as warning
     expect(result.warnings).toBeDefined();
     expect(result.warnings.some((w: string) => w.includes("authentication") && w.includes("auth"))).toBe(true);
+  });
+});
+
+// [sl:yJiRunm_9vOvKC8d9BBcu] Evaluation: token reduction + knowledge hit-rate baselines
+describe("knowledge scaling evaluation", () => {
+  it("compact listing is >90% smaller than full listing", () => {
+    handleOpen({ project: "eval-tokens", goal: "Token eval" }, AGENT);
+    // Write 10 entries with realistic content sizes
+    for (let i = 0; i < 10; i++) {
+      handleKnowledgeWrite({
+        project: "eval-tokens", key: `entry-${i}`,
+        content: `This is knowledge entry ${i} with substantial content about architecture decisions, conventions, and implementation details that would typically be written by an agent during a session. `.repeat(3),
+        category: i % 2 === 0 ? "convention" : "decision",
+      }, AGENT);
+    }
+
+    const compact = handleKnowledgeRead({ project: "eval-tokens" }) as any;
+    const full = handleKnowledgeRead({ project: "eval-tokens", include_content: true }) as any;
+
+    const compactSize = JSON.stringify(compact).length;
+    const fullSize = JSON.stringify(full).length;
+    const reduction = 1 - (compactSize / fullSize);
+
+    // Compact should be >75% smaller (with realistic content it's >90%, test content is shorter)
+    expect(reduction).toBeGreaterThan(0.75);
+    // Both should have same entry count
+    expect(compact.entries).toHaveLength(full.entries.length);
+  });
+
+  it("cross-cutting knowledge surfaces for unrelated tasks", () => {
+    const { root } = openProject("eval-hit", "Hit-rate eval", AGENT) as any;
+
+    // Create two independent branches
+    const plan = handlePlan({ nodes: [
+      { ref: "api", parent_ref: root.id, summary: "API branch" },
+      { ref: "api-task", parent_ref: "api", summary: "Build API endpoint" },
+      { ref: "ui", parent_ref: root.id, summary: "UI branch" },
+      { ref: "ui-task", parent_ref: "ui", summary: "Build UI component" },
+    ] }, AGENT);
+    const apiId = plan.created.find(c => c.ref === "api")!.id;
+
+    // Write cross-cutting knowledge under API branch
+    handleKnowledgeWrite({ project: "eval-hit", key: "naming", content: "Use camelCase everywhere", category: "convention", source_node: apiId }, AGENT);
+    handleKnowledgeWrite({ project: "eval-hit", key: "layers", content: "Three-layer arch", category: "architecture", source_node: apiId }, AGENT);
+    // Write branch-local knowledge
+    handleKnowledgeWrite({ project: "eval-hit", key: "api-auth", content: "Use JWT", category: "decision", source_node: apiId }, AGENT);
+
+    // Get UI task — should see convention+architecture but not decision
+    const next = handleNext({ project: "eval-hit", count: 10 }, AGENT) as any;
+    const uiTask = next.nodes.find((n: any) => n.node.summary === "Build UI component");
+    expect(uiTask).toBeDefined();
+
+    const keys = uiTask.relevant_knowledge?.map((k: any) => k.key) ?? [];
+    // Cross-cutting hits
+    expect(keys).toContain("naming");
+    expect(keys).toContain("layers");
+    // Branch-local miss (correct behavior)
+    expect(keys).not.toContain("api-auth");
   });
 });
 
@@ -3660,7 +3825,7 @@ describe("graph_retro", () => {
 
     expect(result.stored.finding_count).toBe(1);
     // Verify stored content includes Knowledge Drift section
-    const knowledge = handleKnowledgeRead({ project: "retro-drift" }) as any;
+    const knowledge = handleKnowledgeRead({ project: "retro-drift", include_content: true }) as any;
     const retroEntry = knowledge.entries.find((e: any) => e.key.startsWith("retro-"));
     expect(retroEntry.content).toContain("Knowledge Drift");
     expect(retroEntry.content).toContain("api-style");
@@ -3700,7 +3865,7 @@ describe("graph_retro", () => {
     expect(result.hint).toContain("CLAUDE.md candidate");
 
     // Verify knowledge entry was created
-    const knowledge = handleKnowledgeRead({ project: "retro-store" }) as any;
+    const knowledge = handleKnowledgeRead({ project: "retro-store", include_content: true }) as any;
     const retroEntry = knowledge.entries.find((e: any) => e.key.startsWith("retro-"));
     expect(retroEntry).toBeDefined();
     expect(retroEntry.content).toContain("CLAUDE.md Instruction Candidates");

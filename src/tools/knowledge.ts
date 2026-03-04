@@ -230,6 +230,8 @@ export function handleKnowledgeWriteBatch(input: KnowledgeWriteBatchInput, agent
 export interface KnowledgeReadInput {
   project: string;
   key?: string;
+  keys?: string[]; // [sl:ZAkLYNCsJYHIqm-n3F_Bo] batch read — fetch multiple entries with full content
+  include_content?: boolean; // [sl:gZYSbE2pCxmttcqpHy3nF] default false for listing, ignored when key is provided
 }
 
 function daysSince(dateStr: string): number {
@@ -271,33 +273,74 @@ export function handleKnowledgeRead(input: KnowledgeReadInput) {
     };
   }
 
-  // List all
+  // [sl:ZAkLYNCsJYHIqm-n3F_Bo] Batch read — fetch multiple entries with full content
+  if (input.keys && input.keys.length > 0) {
+    const placeholders = input.keys.map(() => "?").join(",");
+    const rows = db.prepare(
+      `SELECT * FROM knowledge WHERE project = ? AND key IN (${placeholders}) ORDER BY updated_at DESC`
+    ).all(project, ...input.keys) as KnowledgeRow[];
+
+    const entries = rows.map(r => ({
+      key: r.key,
+      content: r.content,
+      category: r.category,
+      source_node: r.source_node,
+      updated_at: r.updated_at,
+      created_by: r.created_by,
+      days_since_update: daysSince(r.updated_at),
+      source_node_resolved: lookupSourceNodeResolved(db, r.source_node),
+    }));
+
+    // Surface which keys were not found
+    const foundKeys = new Set(rows.map(r => r.key));
+    const missing = input.keys.filter(k => !foundKeys.has(k));
+
+    const result: { entries: typeof entries; missing?: string[] } = { entries };
+    if (missing.length > 0) result.missing = missing;
+    return result;
+  }
+
+  // [sl:gZYSbE2pCxmttcqpHy3nF] Metadata-first listing — compact index by default, full content opt-in
+  const includeContent = input.include_content === true;
+
   const rows = db
     .prepare("SELECT key, content, category, source_node, updated_at, created_by FROM knowledge WHERE project = ? ORDER BY updated_at DESC")
     .all(project) as Array<{ key: string; content: string; category: string; source_node: string | null; updated_at: string; created_by: string }>;
 
-  // Batch-fetch source node resolution status
-  const sourceIds = [...new Set(rows.map(r => r.source_node).filter((id): id is string => id !== null))];
-  const resolvedMap = new Map<string, boolean>();
-  if (sourceIds.length > 0) {
-    const placeholders = sourceIds.map(() => "?").join(",");
-    const nodeRows = db.prepare(
-      `SELECT id, resolved FROM nodes WHERE id IN (${placeholders})`
-    ).all(...sourceIds) as Array<{ id: string; resolved: number }>;
-    for (const n of nodeRows) {
-      resolvedMap.set(n.id, n.resolved === 1);
+  if (includeContent) {
+    // Full content mode — original behavior
+    const sourceIds = [...new Set(rows.map(r => r.source_node).filter((id): id is string => id !== null))];
+    const resolvedMap = new Map<string, boolean>();
+    if (sourceIds.length > 0) {
+      const placeholders = sourceIds.map(() => "?").join(",");
+      const nodeRows = db.prepare(
+        `SELECT id, resolved FROM nodes WHERE id IN (${placeholders})`
+      ).all(...sourceIds) as Array<{ id: string; resolved: number }>;
+      for (const n of nodeRows) {
+        resolvedMap.set(n.id, n.resolved === 1);
+      }
     }
+
+    const entries = rows.map(r => ({
+      key: r.key,
+      content: r.content,
+      category: r.category,
+      source_node: r.source_node,
+      updated_at: r.updated_at,
+      created_by: r.created_by,
+      days_since_update: daysSince(r.updated_at),
+      source_node_resolved: r.source_node ? (resolvedMap.get(r.source_node) ?? null) : null,
+    }));
+
+    return { entries };
   }
 
+  // Compact index — key, category, excerpt, days_stale. ~95% token reduction.
   const entries = rows.map(r => ({
     key: r.key,
-    content: r.content,
     category: r.category,
-    source_node: r.source_node,
-    updated_at: r.updated_at,
-    created_by: r.created_by,
-    days_since_update: daysSince(r.updated_at),
-    source_node_resolved: r.source_node ? (resolvedMap.get(r.source_node) ?? null) : null,
+    excerpt: r.content.slice(0, 80),
+    days_stale: daysSince(r.updated_at),
   }));
 
   return { entries };

@@ -535,12 +535,14 @@ const TOOLS = [
   {
     name: "graph_knowledge_read",
     description:
-      "Read knowledge entries for a project. Provide a key to read one entry, or omit to list all entries.",
+      "Read knowledge entries for a project. Provide a key to read one entry, or omit to list all. Listing returns a compact index (key, category, excerpt, days_stale) by default — use include_content: true for full content.",
     inputSchema: {
       type: "object" as const,
       properties: {
         project: { type: "string", description: "Project name" },
         key: { type: "string", description: "Knowledge entry key. Omit to list all." },
+        keys: { type: "array", items: { type: "string" }, description: "Batch read: fetch multiple entries with full content in one call." },
+        include_content: { type: "boolean", description: "When listing all entries (no key/keys), include full content. Default: false (compact index)." },
       },
       required: ["project"],
     },

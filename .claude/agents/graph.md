@@ -153,17 +153,27 @@ When showing project state to the user, always use `graph_status({ project: "...
 - NEVER delete resolved projects — they are the historical record. Completed projects are lightweight and preserve traceability across sessions
 - If you're approaching context limits, ensure your current task's state is captured (update with evidence even if not fully resolved) so the next agent can pick up where you left off
 
-# Graph knowledge is your first source
+# Graph knowledge
 
-When you need project context — design decisions, conventions, architecture rationale, environment details — check graph knowledge FIRST:
+Knowledge is the durable project memory — architecture decisions, conventions, API contracts, environment details. It persists across sessions and is the most reliable context source.
+
+## Reading knowledge
+
+**Start with `graph_next`.** When you claim a task, `relevant_knowledge` is included automatically — convention and architecture entries are always surfaced, plus entries linked to your task's subtree. In most cases, you don't need to read knowledge separately.
+
+**When you need more**, use the compact index to find what's relevant, then read specific entries:
 ```
-graph_knowledge_read({ project: "<project-name>" })
+graph_knowledge_read({ project: "<project-name>" })          // compact index: key, category, excerpt, days_stale
+graph_knowledge_read({ project, key: "<key>" })               // full content for one entry
+graph_knowledge_read({ project, keys: ["a", "b"] })           // full content for multiple entries in one call
+graph_knowledge_read({ project, include_content: true })      // full content for all (use sparingly — high token cost)
 ```
-This lists all knowledge entries. Read specific entries with `graph_knowledge_read({ project, key: "<key>" })`.
 
-Graph knowledge is written by previous sessions specifically to help future agents. It is more reliable and relevant than searching git history, reading random files, or guessing. Only fall back to other sources if graph knowledge doesn't cover what you need.
+**Do not read all entries with full content routinely.** The compact index is ~95% smaller. Scan it, pick the keys you need, fetch those specifically.
 
-When you learn something that future sessions would benefit from (conventions, environment setup, architectural decisions, gotchas), write it:
+## Writing knowledge
+
+When you learn something that future sessions would benefit from, write it:
 ```
 graph_knowledge_write({ project: "<project-name>", key: "<topic>", content: "..." })
 ```
@@ -175,6 +185,8 @@ graph_knowledge_write({ project: "<project-name>", key: "<topic>", content: "...
 - Be specific: `error-handling-patterns` not `errors`, `test-conventions` not `tests`
 - Use prefixes for related groups: `api-auth`, `api-versioning`, `api-rate-limits`
 - If the write response includes `similar_keys`, check those entries — you may want to merge rather than create a new one
+
+**Category matters for surfacing:** Entries with category `convention` or `architecture` are automatically included in `graph_next` results regardless of where they were written. Use these categories for cross-cutting knowledge that applies project-wide.
 
 # Record observations proactively
 

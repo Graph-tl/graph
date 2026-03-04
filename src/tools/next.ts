@@ -255,6 +255,7 @@ export function handleNext(
     }
 
     // [sl:plL0G5tFvTVHiFlr1uW9P] Surface relevant knowledge linked to this task's subtree
+    // [sl:-3MW3xX7W0z-7FMT9xXxW] Cross-cutting: always include convention + architecture categories
     const subtreeIds = [row.id, ...ancestors.map(a => a.id)];
     // Include siblings (other children of same parent)
     if (row.parent) {
@@ -266,11 +267,20 @@ export function handleNext(
     const placeholders = subtreeIds.map(() => "?").join(",");
     const knowledgeRows = db.prepare(
       `SELECT key, substr(content, 1, 80) as excerpt FROM knowledge
-       WHERE project = ? AND source_node IN (${placeholders})
-       ORDER BY updated_at DESC LIMIT 5`
+       WHERE project = ? AND (source_node IN (${placeholders}) OR category IN ('convention', 'architecture'))
+       ORDER BY updated_at DESC LIMIT 10`
     ).all(project, ...subtreeIds) as Array<{ key: string; excerpt: string }>;
-    if (knowledgeRows.length > 0) {
-      resultNode.relevant_knowledge = knowledgeRows;
+    // Dedup by key (cross-cutting may overlap with subtree match)
+    const seen = new Set<string>();
+    const dedupedKnowledge: Array<{ key: string; excerpt: string }> = [];
+    for (const k of knowledgeRows) {
+      if (!seen.has(k.key)) {
+        seen.add(k.key);
+        dedupedKnowledge.push(k);
+      }
+    }
+    if (dedupedKnowledge.length > 0) {
+      resultNode.relevant_knowledge = dedupedKnowledge;
     }
 
     return resultNode;
