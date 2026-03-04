@@ -4,9 +4,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![npm downloads](https://img.shields.io/npm/dm/@graph-tl/graph)](https://www.npmjs.com/package/@graph-tl/graph)
 
-**Your agent forgets everything between sessions.** Every new chat starts from zero — re-reading files, re-discovering decisions, re-planning work that was already planned. You lose minutes (and tokens) re-explaining what happened last time.
+**Your agent forgets everything between sessions.** Your architecture decisions, naming conventions, business rules, project vision — gone. Every new chat starts from zero. You re-explain the same context, re-make the same decisions, and watch the agent drift from patterns you already established.
 
-Graph fixes that. It's an MCP server that gives your agent persistent memory: a dependency tree of tasks, evidence of what was done, and automatic handoff to the next session.
+Graph fixes that. It's an MCP server that gives your agent a persistent project brain: vision and goals, architecture decisions, conventions, structured roadmaps, and automatic handoff between sessions.
 
 ## Install
 
@@ -20,42 +20,43 @@ Restart Claude Code. That's it.
 
 Tell your agent:
 
-> "Use graph to plan building a REST API with auth and tests."
+> "Use graph to build out the project vision, architecture, and a roadmap for my app."
 
 The agent will:
-1. Create a project and interview you about scope
-2. Decompose work into a dependency tree — nested tasks, priorities, blocking relationships
-3. Claim and complete tasks one by one, recording what it did after each
-4. When you start a new session, the next agent picks up exactly where the last left off
+1. Interview you about goals, business rules, principles, and constraints
+2. Document everything as persistent knowledge — architecture decisions, naming conventions, specs
+3. Build a roadmap with prioritized, dependency-aware tasks across milestones
+4. Start executing — claiming tasks, recording evidence, unblocking the next piece
 
-No copy-pasting context. No re-explaining what was done. The graph carries it forward.
+Next session, a fresh agent picks up exactly where the last left off. It already knows your vision, your architecture, your naming conventions, and what was done yesterday.
 
 ## Before and after
 
 **Without Graph** — every session starts cold:
 ```
-You: "Continue working on the API"
-Agent: "I don't see any prior context. What have you built so far?
-        What's left? What decisions were made?"
+You: "Continue working on the project"
+Agent: "I don't see any prior context. What's the architecture?
+        What conventions are you using? What's been built?"
 You: *spends 5 minutes re-explaining everything*
 ```
 
 **With Graph** — the agent calls `graph_onboard` and knows immediately:
 ```
-Agent: "I see the project. 3 of 8 tasks are done. Auth module and
-        API spec were completed last session using JWT with RS256.
-        Routes and Database layer are ready to work on. I'll pick
-        up Routes — it's highest priority. Claiming it now."
+Agent: "I see the project. Vision: multi-tenant SaaS platform.
+        12 of 30 tasks done. Auth and data layer shipped last week.
+        Conventions: kebab-case files, Zod validation at boundaries.
+        3 tasks are actionable — I'll pick up the billing integration,
+        it's highest priority and its dependencies are resolved."
 ```
 
 One call. Full context. Zero re-explanation.
 
 ## What you get
 
-- **Session-to-session memory** — agents pick up exactly where the last one left off
-- **Dependency engine** — knows what's blocked, what's ready, and what to work on next
+- **Persistent project brain** — vision, goals, architecture, business rules, conventions — all survive between sessions
+- **Structured roadmaps** — dependency-aware task trees with priorities, milestones, and automatic unblocking
+- **Knowledge that sticks** — decisions, specs, nomenclature recorded once, auto-surfaced to every future agent
 - **Evidence trail** — every task records commits, decisions, and file changes so nothing is lost
-- **Knowledge base** — persistent project knowledge (conventions, architecture decisions) auto-surfaced to agents
 - **Local and private** — single SQLite file on your machine, no cloud, no telemetry
 
 ## How it works
@@ -71,39 +72,57 @@ graph_next      → "What's next?"
 
 ### Planning
 
-The agent calls `graph_plan` to build a dependency tree:
+The agent calls `graph_plan` to build a dependency tree. This isn't a flat todo list — it's a structured breakdown with blocking relationships:
 
 ```
-Build REST API
-├── Design
+SaaS Platform
+├── Foundation
+│   ├── Document architecture decisions
+│   ├── Define naming conventions & code principles
 │   └── Write API spec
-├── Implementation
-│   ├── Auth module          (depends on: Write API spec)
-│   ├── Routes               (depends on: Write API spec)
-│   └── Database layer
-└── Testing
-    ├── Unit tests           (depends on: Auth, Routes, Database)
-    └── Integration tests    (depends on: Unit tests)
+├── Core
+│   ├── Auth & tenancy          (depends on: architecture, API spec)
+│   ├── Data layer              (depends on: architecture)
+│   └── Billing integration     (depends on: Auth & tenancy)
+├── Features
+│   ├── User management         (depends on: Auth & tenancy)
+│   └── Dashboard               (depends on: Data layer, User management)
+└── Release
+    ├── E2E tests               (depends on: all Features)
+    └── Deploy pipeline          (depends on: E2E tests)
 ```
 
-The engine immediately knows: "Write API spec" and "Database layer" are actionable. Everything else is blocked. When a task resolves, dependents unblock automatically.
+The engine knows: architecture docs, naming conventions, and API spec are actionable now. Everything else is blocked. When a task resolves, dependents unblock automatically.
+
+### Knowledge
+
+As the agent works, it records decisions and conventions as persistent knowledge — not buried in chat history, but stored and auto-surfaced in future sessions:
+
+```
+knowledge: "architecture"  → "Event-driven, PostgreSQL, Redis for cache"
+knowledge: "convention"    → "kebab-case files, Zod at boundaries, no default exports"
+knowledge: "decision"      → "Stripe for billing — evaluated Paddle, chose Stripe for metered billing support"
+knowledge: "api-contract"  → "REST, versioned /v1/, snake_case JSON fields"
+```
+
+Convention and architecture entries are automatically included in relevant tool responses. The agent follows your patterns without being told every session.
 
 ### Handoff
 
-Session 1 ends after completing 3 tasks. Session 2 starts:
+Session 1 ends after completing 5 tasks. Session 2 starts:
 
 ```
 → graph_onboard("my-project")
 
-← goal: "Build REST API"
-  hint: "2 actionable task(s) ready. 3 resolved recently."
-  recently_resolved: Auth module, API spec, Database layer
-  knowledge: "JWT with RS256, keys in /config"
-  actionable: Routes (priority 8), Integration tests (priority 7)
-  continuity_confidence: 85/100
+← goal: "SaaS Platform"
+  summary: 5 of 14 resolved, 3 actionable
+  recently_resolved: Architecture, Conventions, API spec, Auth, Data layer
+  knowledge: 6 entries (architecture, conventions, 2 decisions, API contract, env setup)
+  actionable: Billing integration (priority 9), User management (priority 8), Dashboard (priority 7)
+  continuity_confidence: 92/100
 ```
 
-The new agent knows what was built, what decisions were made, and what to do next. The continuity confidence score tells it how much to trust the existing state.
+The new agent knows the vision, the architecture, the conventions, what was built, and what to do next. The continuity confidence score tells it how much to trust the existing state.
 
 ## Tools
 
