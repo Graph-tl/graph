@@ -57,6 +57,7 @@ One call. Full context. Zero re-explanation.
 - **Structured roadmaps** — dependency-aware task trees with priorities, milestones, and automatic unblocking
 - **Knowledge that sticks** — decisions, specs, nomenclature recorded once, auto-surfaced to every future agent
 - **Evidence trail** — every task records commits, decisions, and file changes so nothing is lost
+- **Context-aware responses** — compressed, structured output designed to inform without flooding your context window
 - **Local and private** — single SQLite file on your machine, no cloud, no telemetry
 
 ## How it works
