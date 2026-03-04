@@ -134,7 +134,7 @@ const TOOLS = [
   {
     name: "graph_plan",
     description:
-      "Batch create nodes with parent-child and dependency relationships in one atomic call. Use for decomposing work into subtrees. Each node needs a temp 'ref' for intra-batch references. parent_ref and depends_on can reference batch refs or existing node IDs.",
+      "Batch create nodes with parent-child and dependency relationships in one atomic call. Use for decomposing work into subtrees. Each node needs a temp 'ref' for intra-batch references. parent_ref and depends_on can reference batch refs or existing node IDs. Parent nodes in the batch auto-get discovery:'done' (decomposition IS discovery); leaf nodes get discovery:'pending'. Response includes potential_duplicates if new nodes look similar to existing unresolved siblings — review before proceeding.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -181,7 +181,7 @@ const TOOLS = [
   {
     name: "graph_next",
     description:
-      "Get the next actionable node — an unresolved leaf with all dependencies resolved. Ranked by priority (from properties), depth, and least-recently-updated. Returns the node with ancestor chain, context links, and resolved dependency info. Use claim=true to soft-lock the node. When modifying code for this task, annotate key changes with // [sl:nodeId] so future agents can trace code back to this task.",
+      "Get the next actionable node — an unresolved leaf with all dependencies resolved. Ranked by priority, depth, least-recently-updated. Returns: node, ancestor chain, context links, resolved dependency evidence, and relevant_knowledge (auto-surfaced entries from the task's subtree + all convention/architecture entries project-wide). Use claim=true to soft-lock. Annotate code changes with // [sl:nodeId] for traceability.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -230,7 +230,7 @@ const TOOLS = [
   {
     name: "graph_update",
     description:
-      "Update one or more nodes. Can change resolved, state, summary, properties (merged), context_links, and add evidence. When resolving nodes, returns newly_actionable — nodes that became unblocked. ENFORCED: Resolving a node requires evidence — use resolved_reason (shorthand, auto-creates note) or add_evidence array (type: 'git' for commits, 'note' for what was done and why, 'test' for results). Also add context_links to files you modified.",
+      "Update one or more nodes. Can change resolved, state, summary, properties (merged), context_links, and add evidence. When resolving nodes, returns newly_actionable — nodes that became unblocked. ENFORCED: Resolving a node requires evidence — use resolved_reason (shorthand, auto-creates note) or add_evidence array (type: 'git' for commits, 'note' for what was done and why, 'test' for results). Also add context_links to files you modified. Parent nodes auto-resolve when all children resolve (opt out: properties.auto_resolve=false; cascade to grandparents: properties.cascade_resolve=true). Prefer graph_resolve for simple task completion — it auto-detects git commits and modified files.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -485,7 +485,7 @@ const TOOLS = [
   {
     name: "graph_knowledge_write",
     description:
-      "Write a knowledge entry for a project. Creates or overwrites a named document. Use for persistent project-level knowledge (architecture decisions, conventions, API contracts) that outlives individual tasks. Check existing entries first to avoid duplicates.",
+      "Write a knowledge entry for a project. Creates or overwrites a named document. Use for persistent project-level knowledge (architecture decisions, conventions, API contracts) that outlives individual tasks. Check existing entries first to avoid duplicates. Category matters: entries with category 'convention' or 'architecture' are auto-surfaced in graph_next results project-wide, so use these for cross-cutting knowledge all agents should see.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -618,7 +618,7 @@ const TOOLS = [
   {
     name: "graph_resolve",
     description:
-      "Resolve a node with auto-collected evidence. Automatically detects recent git commits and modified files since the node was claimed. Simpler than graph_update — just provide node_id and a message. Recommended way to resolve tasks.",
+      "Resolve a node with auto-collected evidence. Automatically detects recent git commits and modified files since the node was claimed. Primary way to close tasks — simpler than graph_update. Just provide node_id and a message. Can optionally write a knowledge entry in the same call. Triggers parent auto-resolve if all siblings are done.",
     inputSchema: {
       type: "object" as const,
       properties: {
