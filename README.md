@@ -28,7 +28,7 @@ The agent will:
 3. Build a roadmap with prioritized, dependency-aware tasks across milestones
 4. Start executing — claiming tasks, recording evidence, unblocking the next piece
 
-Next session, a fresh agent picks up exactly where the last left off. It already knows your vision, your architecture, your naming conventions, and what was done yesterday.
+Next session, the agent calls `graph_onboard` and instantly has full context — your vision, architecture, naming conventions, and what was done yesterday. One call, zero re-explanation.
 
 ## Before and after
 
