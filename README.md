@@ -4,9 +4,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![npm downloads](https://img.shields.io/npm/dm/@graph-tl/graph)](https://www.npmjs.com/package/@graph-tl/graph)
 
-Graph gives agents session-to-session memory with actionable next steps.
+**Your agent forgets everything between sessions.** Every new chat starts from zero — re-reading files, re-discovering decisions, re-planning work that was already planned. You lose minutes (and tokens) re-explaining what happened last time.
 
-Graph is an MCP server that gives agents persistent memory across sessions. They decompose work into dependency trees, claim tasks, record evidence of what they did, and hand off to the next agent automatically.
+Graph fixes that. It's an MCP server that gives your agent persistent memory: a dependency tree of tasks, evidence of what was done, and automatic handoff to the next session.
 
 ## Install
 
@@ -18,45 +18,60 @@ Restart Claude Code. That's it.
 
 ## See it work
 
-Tell your agent: "Use graph to plan building a REST API with auth and tests."
+Tell your agent:
+
+> "Use graph to plan building a REST API with auth and tests."
 
 The agent will:
-1. Create a project (`graph_open`)
-2. Interview you about scope (`discovery`)
-3. Decompose into a dependency tree (`graph_plan`)
-4. Claim and work on tasks one by one (`graph_next` → work → `graph_update`)
-5. When you start a new session, the next agent picks up exactly where the last one left off (`graph_onboard`)
+1. Create a project and interview you about scope
+2. Decompose work into a dependency tree — nested tasks, priorities, blocking relationships
+3. Claim and complete tasks one by one, recording what it did after each
+4. When you start a new session, the next agent picks up exactly where the last left off
 
 No copy-pasting context. No re-explaining what was done. The graph carries it forward.
 
-## Why
+## Before and after
 
-Issue trackers (Jira, Linear) are built for humans: columns, boards, sprints, UI. When agents talk to them via MCP, they waste tokens on metadata and need 6+ round trips for simple workflows.
+**Without Graph** — every session starts cold:
+```
+You: "Continue working on the API"
+Agent: "I don't see any prior context. What have you built so far?
+        What's left? What decisions were made?"
+You: *spends 5 minutes re-explaining everything*
+```
 
-Graph gives agents what they actually need:
-- **Persistent across sessions** — an agent picks up exactly where the last one left off
-- **Arbitrary nesting** — decompose work as deep as needed
-- **Dependencies with cycle detection** — the engine knows what's blocked and what's ready
-- **Server-side ranking** — one call to get the highest-priority actionable task
-- **Evidence trail** — agents record decisions, commits, and test results so the next agent inherits that knowledge
-- **Minimal overhead** — batched operations and structured responses keep token usage low
+**With Graph** — the agent calls `graph_onboard` and knows immediately:
+```
+Agent: "I see the project. 3 of 8 tasks are done. Auth module and
+        API spec were completed last session using JWT with RS256.
+        Routes and Database layer are ready to work on. I'll pick
+        up Routes — it's highest priority. Claiming it now."
+```
+
+One call. Full context. Zero re-explanation.
+
+## What you get
+
+- **Session-to-session memory** — agents pick up exactly where the last one left off
+- **Dependency engine** — knows what's blocked, what's ready, and what to work on next
+- **Evidence trail** — every task records commits, decisions, and file changes so nothing is lost
+- **Knowledge base** — persistent project knowledge (conventions, architecture decisions) auto-surfaced to agents
+- **Local and private** — single SQLite file on your machine, no cloud, no telemetry
 
 ## How it works
 
 ```
-1. graph_onboard     → "What's the state of this project?"
-2. graph_next        → "What should I work on?" (claim it)
-3.    ... do the work ...
-4. graph_update      → "Done. Here's what I did." (resolve with evidence)
-5.    → engine returns newly unblocked tasks
-6. graph_next        → "What's next?"
+graph_onboard   → "What's the state of this project?"
+graph_next      → "What should I work on?" (claims it)
+   ... agent does the work ...
+graph_update    → "Done. Here's what I did." (resolves with evidence)
+   → engine returns newly unblocked tasks
+graph_next      → "What's next?"
 ```
-
-When a new agent joins, `graph_onboard` returns everything it needs in one call: project goal, task tree, recent evidence, knowledge entries, what was recently resolved, and what's actionable now.
 
 ### Planning
 
-The agent calls `graph_plan` to create a dependency tree:
+The agent calls `graph_plan` to build a dependency tree:
 
 ```
 Build REST API
@@ -71,133 +86,61 @@ Build REST API
     └── Integration tests    (depends on: Unit tests)
 ```
 
-`graph_next` immediately knows: "Write API spec" and "Database layer" are actionable. Everything else is blocked. When a task resolves, dependents unblock automatically.
+The engine immediately knows: "Write API spec" and "Database layer" are actionable. Everything else is blocked. When a task resolves, dependents unblock automatically.
 
-### Agent handoff
+### Handoff
 
 Session 1 ends after completing 3 tasks. Session 2 starts:
 
 ```
 → graph_onboard("my-project")
 
-← {
-    goal: "Build REST API",
-    hint: "2 actionable task(s) ready. 3 resolved recently.",
-    summary: { total: 8, resolved: 3, actionable: 2 },
-    recently_resolved: [
-      { summary: "Auth module", agent: "claude-code", resolved_at: "..." },
-    ],
-    knowledge: [
-      { key: "auth-decisions", content: "JWT with RS256, keys in /config" },
-    ],
-    actionable: [
-      { summary: "Routes", priority: 8 },
-      { summary: "Database layer", priority: 7 },
-    ]
-  }
+← goal: "Build REST API"
+  hint: "2 actionable task(s) ready. 3 resolved recently."
+  recently_resolved: Auth module, API spec, Database layer
+  knowledge: "JWT with RS256, keys in /config"
+  actionable: Routes (priority 8), Integration tests (priority 7)
+  continuity_confidence: 85/100
 ```
 
-The new agent knows what was built, what decisions were made, and what to do next.
-
-### Code annotations
-
-Agents annotate key changes with `// [sl:nodeId]`:
-
-```typescript
-// [sl:OZ0or-q5TserCEfWUeMVv] Require evidence when resolving
-if (input.resolved === true && !node.resolved) {
-  const hasExistingEvidence = node.evidence.length > 0;
-  const hasNewEvidence = input.add_evidence && input.add_evidence.length > 0;
-  if (!hasExistingEvidence && !hasNewEvidence) {
-    throw new EngineError("evidence_required", ...);
-  }
-}
-```
-
-That node ID links to a task in the graph. Call `graph_context` or `graph_history` on it to see what the task was, why it was done, what files were touched, and who did it.
-
-## State & evidence model
-
-Graph tracks three complementary layers per task:
-
-| Layer | Fields | Purpose |
-|---|---|---|
-| **Task state** | `resolved`, `blocked`, `state` | Drive dependency computation and actionability ranking |
-| **Evidence** | `evidence[]` — type, ref, agent, timestamp | Immutable trail: commits, test results, decisions |
-| **Repo pointers** | `context_links[]` — file paths, URLs | Bridge from DB task to actual code changes |
-
-When a task resolves, high-quality evidence has three parts: a **git commit** (traceable artifact), a **note** (what was done and why), and **context_links** (which files changed). The engine measures this as a quality KPI and flags tasks with weak evidence.
-
-**Continuity confidence** (0-100) scores how well the project supports agent handoff based on evidence coverage, staleness, knowledge gaps, and stale blockers. Returned in `graph_onboard` so the next agent knows whether to trust the existing state or re-verify.
-
-The `state` field is agent-defined and engine-ignored — use it for your own lifecycle tracking (draft, review, etc.) without affecting dependency computation.
-
-## Knowledge system
-
-Graph treats project knowledge as a first-class concept, not just task notes. Knowledge entries are categorized and automatically surfaced where relevant.
-
-**Categories:** `general`, `architecture`, `convention`, `decision`, `environment`, `api-contract`, `discovery`
-
-Convention and architecture entries are auto-surfaced in relevant tool responses so agents follow established patterns without being told. The knowledge audit tool detects stale entries, overlaps between entries, and drift from actual project state.
-
-## Roadmap & retrospectives
-
-**Roadmap** (`graph_roadmap`) groups tasks by planning horizon — now, next, later, paused — giving agents and humans a release-pipeline view of what's coming.
-
-**Retrospectives** (`graph_retro`) run structured retros on recently resolved work: what went well, what didn't, and what to change. Findings are categorized and can feed back into the knowledge system to prevent repeating mistakes.
+The new agent knows what was built, what decisions were made, and what to do next. The continuity confidence score tells it how much to trust the existing state.
 
 ## Tools
 
-### Core workflow
+Graph exposes 22 MCP tools. Here are the ones agents use most:
 
-| Tool | Purpose |
+| Tool | What it does |
 |---|---|
-| **graph_open** | Open or create a project. No args = list all projects |
-| **graph_plan** | Batch create tasks with parent-child and dependency relationships. Atomic |
-| **graph_next** | Get next actionable task, ranked by priority/depth/recency. Optional claim |
-| **graph_update** | Resolve tasks, add evidence. Reports newly unblocked tasks. Auto-resolves parents when all children complete |
-| **graph_resolve** | One-call resolve helper: auto-collects git commits and modified files as evidence |
+| `graph_onboard` | Full project context in one call — summary, tree, evidence, knowledge, actionable tasks |
+| `graph_plan` | Batch-create a task tree with dependencies. Atomic |
+| `graph_next` | Get the highest-priority actionable task. Optional claim |
+| `graph_update` | Resolve tasks with evidence. Returns newly unblocked tasks |
+| `graph_resolve` | One-call resolve — auto-collects git commits and modified files |
+| `graph_status` | Formatted project dashboard with progress and integrity checks |
+| `graph_roadmap` | Release-pipeline view grouped by horizon (now / next / later / paused) |
 
-### Navigation & inspection
+<details>
+<summary>All tools</summary>
 
-| Tool | Purpose |
-|---|---|
-| **graph_onboard** | Single-call orientation: project summary, tree, evidence, knowledge, actionable tasks, continuity confidence. Omit project to auto-select |
-| **graph_context** | Deep-read a task: ancestors, children, dependency graph |
-| **graph_tree** | Full project tree visualization with resolve status |
-| **graph_query** | Search and filter by state, properties, text, ancestry |
-| **graph_history** | Audit trail: who changed what, when |
+**Core workflow:** `graph_open`, `graph_plan`, `graph_next`, `graph_update`, `graph_resolve`
 
-### Structure & planning
+**Navigation:** `graph_onboard`, `graph_context`, `graph_tree`, `graph_query`, `graph_history`
 
-| Tool | Purpose |
-|---|---|
-| **graph_connect** | Add/remove dependency edges with cycle detection |
-| **graph_restructure** | Move (reparent), merge, drop, or delete tasks. Atomic |
-| **graph_roadmap** | Release-pipeline view grouped by horizon (now / next / later / paused) with decision context |
+**Structure:** `graph_connect` (dependency edges with cycle detection), `graph_restructure` (move, merge, drop, delete tasks), `graph_roadmap`
 
-### Project views & quality
+**Quality:** `graph_status`, `graph_retro` (structured retrospectives with drift detection), `graph_agent_config`
 
-| Tool | Purpose |
-|---|---|
-| **graph_status** | Formatted markdown dashboard: progress, task tree, integrity, knowledge |
-| **graph_retro** | Structured retrospective: gather resolved tasks, record categorized findings, detect knowledge drift |
-| **graph_agent_config** | Returns agent configuration file for `.claude/agents/graph.md` |
+**Knowledge:** `graph_knowledge_write`, `graph_knowledge_write_batch`, `graph_knowledge_read`, `graph_knowledge_search`, `graph_knowledge_delete`, `graph_knowledge_audit`
 
-### Knowledge management
-
-| Tool | Purpose |
-|---|---|
-| **graph_knowledge_write** | Store persistent project knowledge with category (architecture, convention, decision, etc.) |
-| **graph_knowledge_write_batch** | Batch write multiple knowledge entries. Atomic |
-| **graph_knowledge_read** | Read individual entries or list all with optional content |
-| **graph_knowledge_search** | Search knowledge by substring |
-| **graph_knowledge_delete** | Delete a knowledge entry |
-| **graph_knowledge_audit** | Deep-clean audit: flags stale entries, overlaps, orphans, and drift |
+</details>
 
 ## Configuration
 
-Add to `.mcp.json` (or run `npx -y @graph-tl/graph init`):
+```bash
+npx -y @graph-tl/graph init    # Auto-configures everything
+```
+
+Or add manually to `.mcp.json`:
 
 ```json
 {
@@ -213,7 +156,8 @@ Add to `.mcp.json` (or run `npx -y @graph-tl/graph init`):
 }
 ```
 
-Environment variables (all optional):
+<details>
+<summary>Environment variables</summary>
 
 | Variable | Default | Description |
 |---|---|---|
@@ -221,7 +165,10 @@ Environment variables (all optional):
 | `GRAPH_DB` | `~/.graph/db/<hash>/graph.db` | Database path (per-project, outside your repo) |
 | `GRAPH_CLAIM_TTL` | `60` | Soft claim expiry in minutes |
 
-## CLI
+</details>
+
+<details>
+<summary>CLI commands</summary>
 
 ```bash
 graph init           # Set up graph in the current project
@@ -234,26 +181,22 @@ graph --version      # Print version
 graph --help         # Print usage summary
 ```
 
+</details>
+
 ### Updating
 
-Graph checks npm for newer versions on every MCP server startup. When an update is available, agents see the notice at session start via `graph_onboard`. To update:
+Graph checks npm for newer versions on startup. To update:
 
 ```bash
 npx @graph-tl/graph update
 ```
-
-This clears the npx cache, re-writes `.mcp.json` with `@latest` pinning, and updates the agent file. Restart Claude Code to load the new version.
-
-## Token efficiency
-
-Graph is designed to minimize agent overhead. Every operation is a single MCP call with structured, compact responses — no pagination, no field filtering, no extra round trips. Batched operations like `graph_plan` and `graph_update` let agents do more per call, and `graph_onboard` delivers full project context in one shot instead of requiring a sequence of queries.
 
 ## Data & security
 
 Your data stays on your machine.
 
 - **Single SQLite file** in `~/.graph/db/` — outside your repo, nothing to gitignore
-- **Local-first** — stdio MCP server, no telemetry, no cloud sync. The only network activity is `npx` fetching the package
+- **Local-first** — stdio MCP server, no telemetry, no cloud sync
 - **No secrets stored** — task summaries, evidence notes, and file path references only
 - **You own your data** — back it up, delete it, move it between machines
 
